@@ -1,0 +1,185 @@
+#include <iostream>
+#include <vector>
+#include <chrono>
+#include <cuda_runtime.h>
+#include <iomanip>
+
+// Define the number of CUDA cores for your specific GPU (GTX 1050Ti has 768 cores)
+#define CUDA_CORES 768
+
+// Macro for checking CUDA function call errors easily
+#define CUDA_CHECK(call) \
+    { \
+        cudaError_t err = call; \
+        if (err != cudaSuccess) { \
+            std::cerr << "CUDA Error: " << cudaGetErrorString(err) << " at line " << __LINE__ << std::endl; \
+            exit(EXIT_FAILURE); \
+        } \
+    }
+
+/********************** CUDA Kernel: Matrix Multiplication **********************/
+// This kernel performs matrix multiplication in parallel on the GPU.
+// Each thread is responsible for computing one element of the output matrix C.
+__global__ void matrixMulCanon(int* A, int* B, int* C, int N) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;  // Calculate the row index
+    int col = blockIdx.x * blockDim.x + threadIdx.x;  // Calculate the column index
+
+    if (row < N && col < N) {
+        int sum = 0;
+        // Perform the dot product of row from A and column from B
+        for (int k = 0; k < N; ++k) {
+            sum += A[row * N + k] * B[k * N + col];
+        }
+        C[row * N + col] = sum;  // Store the result in matrix C
+    }
+}
+
+/********************** Sequential Matrix Multiplication **********************/
+// This function performs matrix multiplication on the CPU (sequentially).
+// It is used to compare the performance of the GPU vs CPU.
+void sequentialMatrixMul(const std::vector<int>& A, const std::vector<int>& B, std::vector<int>& C, int N) {
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int sum = 0;
+            for (int k = 0; k < N; ++k) {
+                sum += A[i * N + k] * B[k * N + j];  // Summing the product of corresponding elements
+            }
+            C[i * N + j] = sum;  // Store the result
+        }
+    }
+}
+
+/********************** Run Matrix Multiplication Test **********************/
+// This function allocates memory, copies data to GPU, runs the kernel,
+// measures execution time on both CPU and GPU, and calculates speedup and efficiency.
+void runMatrixMultiplication(int N) {
+    // Host matrices
+    std::vector<int> A(N * N), B(N * N), C(N * N);
+
+    // Initialize matrices A and B with random numbers between 0 and 9
+    for (int i = 0; i < N * N; ++i) {
+        A[i] = rand() % 10;
+        B[i] = rand() % 10;
+    }
+
+    // Device matrices (GPU memory)
+    int *d_A, *d_B, *d_C;
+    CUDA_CHECK(cudaMalloc(&d_A, N * N * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_B, N * N * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_C, N * N * sizeof(int)));
+
+    // Copy matrices A and B from Host (CPU) to Device (GPU)
+    cudaMemcpy(d_A, A.data(), N * N * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, B.data(), N * N * sizeof(int), cudaMemcpyHostToDevice);
+
+    // CPU execution time measurement (Sequential matrix multiplication)
+    auto startSeq = std::chrono::high_resolution_clock::now();
+    sequentialMatrixMul(A, B, C, N);
+    auto endSeq = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> seqTime = endSeq - startSeq;
+
+    // GPU execution time measurement
+    float gpuTime;
+    cudaEvent_t start, end;
+    cudaEventCreate(&start);
+    cudaEventCreate(&end);
+
+    dim3 blockDim(16, 16);  // Define a block of 16x16 threads
+    dim3 gridDim((N + 15) / 16, (N + 15) / 16);  // Calculate grid dimensions based on matrix size
+
+    // Record start event
+    cudaEventRecord(start);
+    matrixMulCanon<<<gridDim, blockDim>>>(d_A, d_B, d_C, N);  // Launch kernel
+    cudaEventRecord(end);
+    cudaEventSynchronize(end);
+    cudaEventElapsedTime(&gpuTime, start, end);  // Calculate elapsed time in milliseconds
+
+    // Check for any CUDA errors after kernel execution
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        std::cerr << "CUDA Kernel Error: " << cudaGetErrorString(err) << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    // Calculate speedup and efficiency
+    double speedup = seqTime.count() / (gpuTime / 1000.0);  // (CPU time) / (GPU time)
+    double efficiency = speedup / CUDA_CORES;  // Speedup per core
+
+    // Display the results in a tabular format
+    std::cout << std::setw(15) << N 
+              << std::setw(20) << seqTime.count() 
+              << std::setw(20) << gpuTime 
+              << std::setw(20) << speedup 
+              << std::setw(20) << efficiency 
+              << std::endl;
+
+    // Free GPU memory after processing
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_C);
+}
+
+/********************** Main Function **********************/
+// Entry point of the program
+int main() {
+    std::cout << "\n";
+    std::cout << "\n";
+    std::cout << "Name: Akshata Khadake Roll no: 41224 Class: BE B\n";
+    std::cout << "\n";
+    std::cout << "\n";
+
+    std::cout << "\n==== Matrix Multiplication Tests ====\n";
+    std::cout << std::setw(15) << "Matrix Size" 
+              << std::setw(20) << "CPU Time (s)" 
+              << std::setw(20) << "GPU Time (ms)" 
+              << std::setw(20) << "Speedup" 
+              << std::setw(20) << "Efficiency" 
+              << std::endl;
+    std::cout << std::string(95, '-') << "\n";
+
+    // Define different matrix sizes to test performance on small to large datasets
+    int matrixTestCases[] = {300, 600, 1020, 3000};
+
+    // Run matrix multiplication for each test case
+    for (int i = 0; i < 4; i++) {
+        runMatrixMultiplication(matrixTestCases[i]);
+    }
+
+    return 0;
+}
+
+
+nvcc -o filename filename.cu
+./filename
+
+1. Q: What is CUDA and why are you using it here?
+CUDA (Compute Unified Device Architecture) is a parallel computing platform by NVIDIA that allows developers to use the GPU for general-purpose computing tasks.
+In this program, CUDA helps speed up matrix multiplication by allowing thousands of threads to calculate matrix elements in parallel, instead of doing it sequentially on the CPU.
+
+2. Q: What is the difference between CPU matrix multiplication and GPU matrix multiplication in your program?
+
+CPU version (sequentialMatrixMul) multiplies matrices row by row and column by column, using a single thread.
+
+GPU version (matrixMulCanon kernel) divides the work across many threads running in parallel, each thread computes one element of the result matrix, making it much faster for large matrices.
+
+3. Q: What is a kernel function in CUDA?
+A kernel is a special function written to run on the GPU.
+It is launched by the CPU and executed many times in parallel — once per thread.
+In this program, matrixMulCanon is the kernel that performs matrix multiplication.
+
+4. Q: What are blockDim, gridDim, threadIdx, and blockIdx?
+
+blockDim gives the dimensions (size) of each block (number of threads in a block).
+
+gridDim gives the number of blocks in the entire grid.
+
+threadIdx gives the thread's ID inside its block (like a seat number in a classroom).
+
+blockIdx gives the block's ID inside the grid (like a classroom number). Using them, each thread can calculate a unique row and column to work on.
+
+5. Q: What is cudaMemcpy doing?
+cudaMemcpy is copying data between CPU memory and GPU memory.
+
+First, it copies matrices A and B from CPU to GPU before computation.
+
+After computation (if needed), it would copy the result matrix C from GPU back to CPU.

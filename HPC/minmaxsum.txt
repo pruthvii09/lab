@@ -1,0 +1,236 @@
+#include <iostream>
+#include <vector>
+#include <chrono>
+#include <cuda_runtime.h>
+#include <iomanip>
+#include <fstream>
+#include <limits>
+
+// Define CUDA hardware specifications
+#define CUDA_CORES 768  // Number of CUDA cores in GTX 1050 Ti GPU
+#define BLOCK_SIZE 256  // Optimal block size for better performance on 1050 Ti
+#define WARP_SIZE 32    // Warp size in CUDA architecture
+
+// Macro for checking CUDA errors after API calls
+#define CUDA_CHECK(call) \
+    { \
+        cudaError_t err = call; \
+        if (err != cudaSuccess) { \
+            std::cerr << "CUDA Error: " << cudaGetErrorString(err) << " at line " << __LINE__ << std::endl; \
+            exit(EXIT_FAILURE); \
+        } \
+    }
+
+// Warp-level reduction: reduces values within a warp (32 threads)
+__inline__ __device__ int warpReduceSum(int val) {
+    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1)
+        val += __shfl_down_sync(0xFFFFFFFF, val, offset);  // CUDA intrinsic for shuffle
+    return val;
+}
+
+// Kernel function for block-level reduction using shared memory and warp reduction
+__global__ void reduceSum(int* input, int* output, int n) {
+    __shared__ int sharedData[BLOCK_SIZE]; // Shared memory allocation
+
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int localSum = (tid < n) ? input[tid] : 0; // Boundary check for threads exceeding input size
+
+    // Perform warp-level reduction first
+    localSum = warpReduceSum(localSum);
+
+    // Store the sum from each warp into shared memory
+    int lane = threadIdx.x % WARP_SIZE;
+    int warpId = threadIdx.x / WARP_SIZE;
+
+    if (lane == 0) sharedData[warpId] = localSum;
+    __syncthreads();
+
+    // Only the first warp will sum up the partial sums
+    if (warpId == 0) {
+        localSum = (lane < (blockDim.x / WARP_SIZE)) ? sharedData[lane] : 0;
+        localSum = warpReduceSum(localSum);
+    }
+
+    // First thread of the block adds the result to global output
+    if (threadIdx.x == 0) atomicAdd(output, localSum);
+}
+
+// Sequential sum of array elements on CPU
+long long sequentialSum(const std::vector<int>& data) {
+    long long sum = 0;
+    for (int val : data) sum += val;
+    return sum;
+}
+
+// Sequentially find the minimum value in the array on CPU
+int sequentialMin(const std::vector<int>& data) {
+    int minVal = std::numeric_limits<int>::max();
+    for (int val : data) minVal = std::min(minVal, val);
+    return minVal;
+}
+
+// Sequentially calculate the average of array elements on CPU
+double sequentialAverage(const std::vector<int>& data) {
+    return static_cast<double>(sequentialSum(data)) / data.size();
+}
+
+int main() {
+    // Different input sizes and their maximum random values for testing
+    std::vector<long long> sizes = {5450000, 6846400, 98000656, 10848875};
+    std::vector<int> maxValues = {1000, 2000, 4000, 5000};
+
+    // Printing student details and table headers
+    std::cout << "\n\n";
+    std::cout << "Name: Akshata Khadake Roll no: 41224 Class: BE B\n\n";
+    std::cout << "---------------------------------------------------------------------------------------------------\n";
+    std::cout << "| Input Size | Max Value | CPU Sum       | GPU Sum       | CPU Time (s) | GPU Time (s) | Speedup  | Efficiency | Avg Value | Min Value |\n";
+    std::cout << "---------------------------------------------------------------------------------------------------\n";
+
+    // Loop over each size and max value
+    for (size_t i = 0; i < sizes.size(); i++) {
+        long long n = sizes[i];
+        int maxValue = maxValues[i];
+
+        // Generate random data within maxValue limit
+        std::vector<int> data(n);
+        for (long long j = 0; j < n; ++j) {
+            data[j] = rand() % maxValue;
+        }
+
+        // Calculate number of blocks needed
+        int numBlocks = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+        // Device memory allocations
+        int* d_input;
+        int* d_output;
+        int h_output = 0;
+
+        CUDA_CHECK(cudaMalloc(&d_input, n * sizeof(int)));
+        CUDA_CHECK(cudaMalloc(&d_output, sizeof(int)));
+        CUDA_CHECK(cudaMemcpy(d_input, data.data(), n * sizeof(int), cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemset(d_output, 0, sizeof(int)));
+
+        // ========================= CPU CALCULATIONS ========================= //
+        auto startSeq = std::chrono::high_resolution_clock::now();
+        long long seqSum = sequentialSum(data);
+        int seqMin = sequentialMin(data);
+        double seqAvg = sequentialAverage(data);
+        auto endSeq = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> seqTime = endSeq - startSeq;
+
+        // ========================= GPU CALCULATIONS ========================= //
+        float gpuSumTime;
+        cudaEvent_t start, end;
+        cudaEventCreate(&start);
+        cudaEventCreate(&end);
+
+        cudaEventRecord(start);
+        reduceSum<<<numBlocks, BLOCK_SIZE>>>(d_input, d_output, n);
+        cudaEventRecord(end);
+        cudaEventSynchronize(end);
+        cudaEventElapsedTime(&gpuSumTime, start, end);
+
+        CUDA_CHECK(cudaMemcpy(&h_output, d_output, sizeof(int), cudaMemcpyDeviceToHost));
+
+        // ========================= PERFORMANCE METRICS ========================= //
+
+        // Speedup = CPU Time / GPU Time
+        double speedup = seqTime.count() / (gpuSumTime / 1000.0);
+
+        // Efficiency = Speedup / Number of CUDA cores
+        double efficiency = speedup / CUDA_CORES;
+
+        // ========================= PRINTING THE RESULTS ========================= //
+        std::cout << "| " << std::setw(10) << n
+                  << " | " << std::setw(9) << maxValue
+                  << " | " << std::setw(12) << seqSum
+                  << " | " << std::setw(12) << h_output
+                  << " | " << std::setw(11) << std::fixed << std::setprecision(6) << seqTime.count()
+                  << " | " << std::setw(11) << gpuSumTime / 1000.0
+                  << " | " << std::setw(7) << std::fixed << std::setprecision(2) << speedup
+                  << " | " << std::setw(10) << std::fixed << std::setprecision(6) << efficiency
+                  << " | " << std::setw(9) << std::fixed << std::setprecision(2) << seqAvg
+                  << " | " << std::setw(9) << seqMin
+                  << " |\n";
+
+        // Free device memory
+        cudaFree(d_input);
+        cudaFree(d_output);
+    }
+
+    // Table footer
+    std::cout << "---------------------------------------------------------------------------------------------------\n";
+
+    return 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+📜 1. What is the main objective of this program?
+✅ Answer:
+The main objective is to perform sum, minimum, and average operations on a large array using both CPU and GPU, and compare their performance in terms of speedup and efficiency.
+
+📜 2. What is CUDA? Why did you use it?
+✅ Answer:
+CUDA (Compute Unified Device Architecture) is a parallel computing platform by NVIDIA.
+I used CUDA to perform the sum operation faster by taking advantage of thousands of GPU threads working simultaneously.
+
+📜 3. What is a Warp in CUDA?
+✅ Answer:
+A Warp is a group of 32 threads in CUDA that execute the same instruction at the same time.
+Warp-based reduction helps optimize performance by efficiently using fast shared memory.
+
+📜 4. What is Warp Reduction?
+✅ Answer:
+Warp Reduction means reducing (adding) values within a warp (32 threads) without using slow global memory.
+It uses the __shfl_down_sync function to shuffle data between threads inside the warp.
+
+📜 5. What is Shared Memory in CUDA? Why is it used here?
+✅ Answer:
+Shared memory is a fast memory space that all threads within a block can access.
+In my program, I used shared memory to store partial sums from each warp, and then combined them for the final result.
+It makes the reduction process much faster.
+
+📜 6. What is the purpose of atomicAdd?
+✅ Answer:
+atomicAdd ensures that when multiple blocks are trying to add their results to the final output, there are no conflicts (race conditions).
+It guarantees correct addition by locking access while one thread is writing.
+
+📜 7. Why did you calculate speedup and efficiency?
+✅ Answer:
+Speedup tells how much faster the GPU is compared to CPU.
+Efficiency tells how well the GPU resources (CUDA cores) are being utilized during execution.
+
+📜 8. What is the difference between CPU and GPU sum here?
+✅ Answer:
+CPU sum is sequential — it processes elements one by one.
+GPU sum is parallel — it processes multiple elements at the same time using thousands of threads, making it much faster for large datasets.
+
+📜 9. What is the role of cudaEvent_t in this program?
+✅ Answer:
+cudaEvent_t is used to measure GPU kernel execution time very accurately.
+It records start and end timestamps, and calculates how much time the GPU took for computation.

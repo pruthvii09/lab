@@ -1,0 +1,205 @@
+#include <iostream>   // For standard input/output operations (cin, cout)
+#include <vector>     // For using dynamic array (vector) to store adjacency list
+#include <queue>      // For implementing Breadth-First Search (BFS) traversal
+#include <stack>      // For implementing Depth-First Search (DFS) traversal
+#include <omp.h>      // For enabling parallel programming using OpenMP
+
+using namespace std;
+
+// Graph class representing an undirected graph using an adjacency list
+class Graph {
+private:
+    int numVertices;                     // Total number of vertices in the graph
+    vector<vector<int>> adj;              // Adjacency list to store neighbors of each vertex
+
+public:
+    // Constructor: initializes the graph with a given number of vertices
+    Graph(int vertices) : numVertices(vertices), adj(vertices) {}
+
+    // Function to add an undirected edge between two vertices
+    void addEdge(int src, int dest) {
+        adj[src].push_back(dest);       // Add destination vertex to source vertex's list
+        adj[dest].push_back(src);       // Add source vertex to destination vertex's list (undirected edge)
+    }
+
+    // Function to display the adjacency list of the graph
+    void viewGraph() {
+        cout << "Graph:\n";
+        for (int i = 0; i < numVertices; i++) {
+            cout << "Vertex " << i << " -> ";
+            for (int neighbor : adj[i]) {
+                cout << neighbor << " "; // Display all neighbors of vertex 'i'
+            }
+            cout << endl;
+        }
+    }
+
+    // Function to perform Breadth-First Search (BFS) traversal starting from a given vertex
+    void bfs(int startVertex) {
+        vector<bool> visited(numVertices, false); // Boolean array to keep track of visited vertices
+        queue<int> q;                             // Queue to implement BFS (FIFO structure)
+
+        visited[startVertex] = true;              // Mark the starting vertex as visited
+        q.push(startVertex);                      // Enqueue the starting vertex
+
+        cout << "Breadth First Search (BFS): ";
+
+        // Continue until the queue becomes empty
+        while (!q.empty()) {
+            int currentVertex = q.front();        // Access the front element of the queue
+            q.pop();                              // Dequeue the front element
+            cout << currentVertex << " ";         // Output the current visited vertex
+
+            // Traverse all adjacent vertices (neighbors) of the current vertex
+            // ⚠️ WARNING: Parallelizing here is not thread-safe because queue and visited are shared among threads
+            #pragma omp parallel for
+            for (int i = 0; i < adj[currentVertex].size(); i++) {
+                int neighbor = adj[currentVertex][i]; // Get the i-th neighbor
+                if (!visited[neighbor]) {             // If neighbor is not visited yet
+                    visited[neighbor] = true;         // Mark neighbor as visited
+                    q.push(neighbor);                 // Enqueue the neighbor (⚠️ Not thread-safe operation)
+                }
+            }
+        }
+
+        cout << endl; // End of BFS traversal
+    }
+
+    // Function to perform Depth-First Search (DFS) traversal starting from a given vertex
+    void dfs(int startVertex) {
+        vector<bool> visited(numVertices, false); // Boolean array to keep track of visited vertices
+        stack<int> s;                             // Stack to implement DFS (LIFO structure)
+
+        visited[startVertex] = true;              // Mark the starting vertex as visited
+        s.push(startVertex);                      // Push the starting vertex onto the stack
+
+        cout << "Depth First Search (DFS): ";
+
+        // Continue until the stack becomes empty
+        while (!s.empty()) {
+            int currentVertex = s.top();           // Access the top element of the stack
+            s.pop();                               // Remove the top element
+            cout << currentVertex << " ";          // Output the current visited vertex
+
+            // Traverse all adjacent vertices (neighbors) of the current vertex
+            // ⚠️ WARNING: Parallelizing here is not thread-safe because stack and visited are shared among threads
+            #pragma omp parallel for
+            for (int i = 0; i < adj[currentVertex].size(); i++) {
+                int neighbor = adj[currentVertex][i]; // Get the i-th neighbor
+                if (!visited[neighbor]) {             // If neighbor is not visited yet
+                    visited[neighbor] = true;         // Mark neighbor as visited
+                    s.push(neighbor);                 // Push the neighbor onto the stack (⚠️ Not thread-safe operation)
+                }
+            }
+        }
+
+        cout << endl; // End of DFS traversal
+    }
+};
+
+// Main function: Driver code to test the Graph class functionalities
+int main() {
+    int numVertices;
+    cout << "Enter the number of vertices in the graph: ";
+    cin >> numVertices; // Read the number of vertices from user
+
+    // Create a Graph object with the specified number of vertices
+    Graph graph(numVertices);
+
+    int numEdges;
+    cout << "Enter the number of edges in the graph: ";
+    cin >> numEdges; // Read the number of edges from user
+
+    // Input the edges from user
+    cout << "Enter the edges (source destination):\n";
+    for (int i = 0; i < numEdges; i++) {
+        int src, dest;
+        cin >> src >> dest; // Read each pair of source and destination vertices
+        graph.addEdge(src, dest); // Add the edge to the graph
+    }
+
+    // Display the adjacency list representation of the graph
+    graph.viewGraph();
+
+    int startVertex;
+    cout << "Enter the starting vertex for BFS and DFS: ";
+    cin >> startVertex; // Read the starting vertex from user
+
+    // Perform BFS traversal starting from the given vertex
+    graph.bfs(startVertex);
+
+    // Perform DFS traversal starting from the given vertex
+    graph.dfs(startVertex);
+
+    return 0; // Indicate successful program termination
+}
+
+
+
+Enter the number of vertices in the graph: 5
+Enter the number of edges in the graph: 6
+Enter the edges (source destination):
+0 1
+0 2
+1 2
+1 3
+2 4
+3 4
+Enter the starting vertex for BFS and DFS: 0
+
+
+
+
+. What is BFS (Breadth-First Search)?
+Answer:
+BFS is a graph traversal algorithm where we explore all the neighbors of a node before moving to the next level neighbors.
+It uses a queue (FIFO) and is useful for finding the shortest path in an unweighted graph.
+
+2. What is DFS (Depth-First Search)?
+Answer:
+DFS is a graph traversal algorithm where we explore as far as possible along a branch before backtracking.
+It uses a stack (LIFO) and is useful for pathfinding, detecting cycles, and solving puzzles like mazes.
+
+3. Why is OpenMP parallelization risky in your BFS and DFS?
+Answer:
+Because the queue (in BFS) and stack (in DFS) are shared between threads, and updating them from multiple threads at the same time can cause race conditions and data corruption.
+OpenMP should not be used on non-thread-safe structures unless protected by locks or critical sections.
+
+4. What data structures are used in BFS and DFS in your code?
+Answer:
+
+BFS uses a queue (std::queue) to store vertices at the current level.
+
+DFS uses a stack (std::stack) to explore as deep as possible before backtracking.
+
+5. What is an adjacency list and why is it used?
+Answer:
+An adjacency list is a way to represent a graph where each vertex stores a list of its neighbors.
+It uses less memory than an adjacency matrix, especially for sparse graphs (where most possible edges are missing).
+
+6. Can BFS and DFS give different traversal outputs?
+Answer:
+Yes.
+BFS explores level by level (wider first), while DFS explores depth first (deeper first), so their traversal orders are usually different.
+
+7. Why are graphs undirected in your program?
+Answer:
+Because when we add an edge, we add it both ways:
+
+from source to destination, and
+
+from destination back to source.
+So the graph is undirected, meaning both vertices know about the connection.
+
+8. What changes would you make to perform a correct parallel BFS or DFS?
+Answer:
+To correctly parallelize, I would need to use thread-safe queues and stacks, or use critical sections, locks, or atomic operations to protect shared data.
+
+9. What happens if we don’t mark a vertex as visited immediately?
+Answer:
+If we delay marking a vertex as visited, it might get added multiple times to the queue or stack, leading to infinite loops or wrong traversals.
+
+
+
+
+
