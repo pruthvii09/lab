@@ -1,0 +1,357 @@
+# Importing essential libraries
+
+# os: for interacting with the operating system, like directory paths.
+import os
+
+# numpy: for numerical operations and handling arrays efficiently.
+import numpy as np
+
+# tensorflow: main library for building and training deep learning models.
+import tensorflow as tf
+
+# Functions for preprocessing image data, like loading and converting images into arrays.
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+# Sequential: model type where layers are stacked one after another.
+from tensorflow.keras.models import Sequential
+
+# Importing necessary layers: Conv2D, MaxPooling2D, Flatten, Dense, Dropout to build CNN architecture.
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+
+# EarlyStopping: to stop training when model performance stops improving.
+from tensorflow.keras.callbacks import EarlyStopping
+
+# load_img, img_to_array: to load and prepare images manually.
+from tensorflow.keras.utils import load_img, img_to_array
+
+# glob: to fetch file paths matching a pattern (helpful to collect all image file paths from a folder).
+import glob
+
+# matplotlib: library for plotting and displaying images.
+import matplotlib.pyplot as plt
+
+
+# ------------------ DATA LOADING AND PREPARATION ------------------
+
+# Defining the path to the training dataset
+train_dir = r"C:\Users\gayat\Downloads\Plant_Disease_Dataset\New Plant Diseases Dataset(Augmented)\train"
+
+# Defining the path to the validation dataset
+valid_dir = r"C:\Users\gayat\Downloads\Plant_Disease_Dataset\New Plant Diseases Dataset(Augmented)\valid"
+
+
+# Setting the size of the images that will be fed into the model
+# All images will be resized to 128x128 pixels
+image_size = (128, 128)
+
+# Setting the number of images to process in one batch during training
+batch_size = 32
+
+# Creating a data generator for training data
+# It will rescale pixel values from [0, 255] to [0, 1] range for better training stability
+train_datagen = ImageDataGenerator(rescale=1.0/255)
+
+# Creating a data generator for validation data
+# Similarly rescaling validation images
+valid_datagen = ImageDataGenerator(rescale=1.0/255)
+
+# Generating batches of augmented image data for training
+train_data = train_datagen.flow_from_directory(
+    train_dir,                    # Path to training images
+    target_size=image_size,        # Resize all images to the defined image size
+    batch_size=batch_size,         # Number of images in each batch
+    class_mode='categorical'       # Because it's a multi-class classification problem
+)
+
+# Generating batches of augmented image data for validation
+valid_data = valid_datagen.flow_from_directory(
+    valid_dir,                     # Path to validation images
+    target_size=image_size,         # Resize images
+    batch_size=batch_size,          # Batch size for validation
+    class_mode='categorical'        # Multi-class classification
+)
+
+
+# ------------------ TEST DATA PREPARATION ------------------
+
+# Defining the path for the test dataset (unlabeled images)
+test_dir = r"C:\Users\gayat\Downloads\Plant_Disease_Dataset\New Plant Diseases Dataset(Augmented)\test"
+
+# Getting all image paths from the test directory
+# glob.glob collects all files ending with .JPG
+test_image_paths = glob.glob(test_dir + "/*.JPG")
+
+# Creating an empty list to hold processed test images
+test_images = []
+
+# Looping over each image path
+for img_path in test_image_paths:
+    # Loading the image and resizing it to (128, 128)
+    img = load_img(img_path, target_size=(128, 128))
+    
+    # Converting the image to a numpy array and scaling pixel values to [0,1]
+    img_array = img_to_array(img) / 255.0
+
+    # Appending the processed image array to the test_images list
+    test_images.append(img_array)
+
+# Converting the list of test images into a numpy array
+# This is necessary because the model expects a numpy array as input
+test_images = np.array(test_images)
+
+# Printing how many test images have been loaded
+print(f"Loaded {len(test_images)} test images.")
+
+
+# ------------------ MODEL ARCHITECTURE DEFINITION ------------------
+
+# Creating a Sequential model where each layer is stacked linearly
+model = Sequential([
+
+    # First Convolutional Layer: 32 filters, each of size 3x3, using ReLU activation function
+    Conv2D(32, (3, 3), activation='relu', input_shape=(128, 128, 3)),
+    
+    # First Pooling Layer: Reduces dimensionality and helps in capturing dominant features
+    MaxPooling2D((2, 2)),
+    
+    # Second Convolutional Layer: 64 filters for detecting more complex features
+    Conv2D(64, (3, 3), activation='relu'),
+    
+    # Second Pooling Layer: Again reducing size, preventing overfitting
+    MaxPooling2D((2, 2)),
+    
+    # Flattening Layer: Converts 2D matrices into a 1D vector for the dense layers
+    Flatten(),
+    
+    # Fully Connected Dense Layer with 128 neurons using ReLU activation
+    Dense(128, activation='relu'),
+    
+    # Dropout Layer: Randomly dropping 50% of neurons during training to prevent overfitting
+    Dropout(0.5),
+    
+    # Output Layer: Neurons equal to number of classes, using softmax to output class probabilities
+    Dense(len(train_data.class_indices), activation='softmax')
+])
+
+# Compiling the model: setting optimizer, loss function, and evaluation metrics
+# Adam optimizer: efficient, adaptive learning
+# Categorical Crossentropy: loss function suitable for multi-class classification
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+# Displaying the architecture summary: total parameters and layer shapes
+model.summary()
+
+
+# ------------------ EARLY STOPPING SETUP ------------------
+
+# EarlyStopping: Monitor validation loss, and stop training if no improvement for 5 consecutive epochs
+# restore_best_weights=True ensures the model will keep the weights from the best epoch
+early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+
+
+# ------------------ TRAINING THE MODEL ------------------
+
+# Fitting the model on training data
+# Validating on validation data
+# Limiting number of epochs to 2 (could be increased for better results)
+# Using EarlyStopping callback to prevent overfitting
+history = model.fit(
+    train_data,
+    validation_data=valid_data,
+    epochs=2,
+    callbacks=[early_stopping]
+)
+
+
+# ------------------ MODEL EVALUATION ------------------
+
+# Evaluating the trained model's performance on validation data
+val_loss, val_acc = model.evaluate(valid_data)
+
+# Printing the validation loss and accuracy to see how well the model is generalizing
+print(f"Validation Loss: {val_loss:.4f}")
+print(f"Validation Accuracy: {val_acc:.4f}")
+
+
+# ------------------ TEST PREDICTIONS ------------------
+
+# Predicting classes for all test images
+predictions = model.predict(test_images)
+
+# Taking the index of the class with the highest probability for each test image
+predicted_classes = np.argmax(predictions, axis=1)
+
+# Mapping indices to actual class labels
+class_labels = list(train_data.class_indices.keys())
+
+# Getting the predicted labels in human-readable form
+predicted_labels = [class_labels[k] for k in predicted_classes]
+
+
+# ------------------ VISUALIZING TEST PREDICTIONS ------------------
+
+# Displaying the first 9 test images along with their predicted labels
+for i in range(9):
+    # Create a 3x3 grid of subplots
+    plt.subplot(3, 3, i + 1)
+    
+    # Show the image
+    plt.imshow(plt.imread(test_image_paths[i]))
+    
+    # Set the title as the predicted label
+    plt.title(predicted_labels[i])
+    
+    # Hide the axes for better visualization
+    plt.axis('off')
+
+# Show the complete figure
+plt.show()
+
+
+# ------------------ SAVING THE TRAINED MODEL ------------------
+
+# Saving the trained model to a file so that it can be loaded later for predictions
+model.save("plant_disease_model.h5")
+
+
+
+
+
+# ------------------ PLOTTING TRAINING HISTORY ------------------
+
+# Plotting training and validation loss and accuracy to visually analyze the model's performance
+# This gives a better insight if the model is overfitting or underfitting
+
+# Plot training & validation accuracy values
+plt.figure(figsize=(12, 5))
+
+# Subplot for Accuracy
+plt.subplot(1, 2, 1)
+plt.plot(history.history['accuracy'], label='Training Accuracy', marker='o')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy', marker='o')
+plt.title('Model Accuracy vs Epochs')
+plt.ylabel('Accuracy')
+plt.xlabel('Epoch')
+plt.legend(loc='lower right')
+plt.grid(True)
+
+# Subplot for Loss
+plt.subplot(1, 2, 2)
+plt.plot(history.history['loss'], label='Training Loss', marker='o')
+plt.plot(history.history['val_loss'], label='Validation Loss', marker='o')
+plt.title('Model Loss vs Epochs')
+plt.ylabel('Loss')
+plt.xlabel('Epoch')
+plt.legend(loc='upper right')
+plt.grid(True)
+
+# Display both plots
+plt.tight_layout()
+plt.show()
+
+# ------------------ CLASS DISTRIBUTION IN TRAINING DATA ------------------
+
+# Printing class names and number of images per class
+# This helps to know if the dataset is balanced or imbalanced
+print("\nClass Distribution in Training Data:")
+for class_name, index in train_data.class_indices.items():
+    print(f"{class_name}: {train_data.labels.tolist().count(index)} images")
+
+# ------------------ FINAL NOTES ------------------
+
+# Saving the model to disk ensures that we don't need to retrain it every time.
+# We can simply load the saved .h5 model and directly use it for predictions.
+print("\nModel has been saved successfully as 'plant_disease_model.h5'. You can reload it anytime for predictions without retraining!")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+1. Why did you use CNN (Convolutional Neural Network) instead of a simple Neural Network?
+Answer:
+CNNs are specially designed to process image data.
+They automatically learn important features like edges, textures, patterns using filters (convolutional layers), unlike simple neural networks which need manual feature extraction.
+This makes CNNs much better at handling images.
+
+2. Why are you rescaling images by 1/255?
+Answer:
+Images have pixel values between 0 to 255.
+Dividing by 255 normalizes these values between 0 and 1, which helps the model train faster and makes optimization algorithms like Adam more stable.
+
+3. What is the purpose of MaxPooling?
+Answer:
+MaxPooling reduces the spatial size of feature maps, making the model computationally efficient.
+It also helps in capturing dominant features and controlling overfitting by providing a form of down-sampling.
+
+4. Why did you use categorical_crossentropy as the loss function?
+Answer:
+Because this is a multi-class classification problem (we have multiple plant disease classes, not just two),
+and categorical_crossentropy is the best suited loss for multi-class classification tasks.
+
+5. What is EarlyStopping and why did you use it?
+Answer:
+EarlyStopping monitors a metric (here val_loss) and stops training automatically when the model stops improving for a certain number of epochs (patience=5).
+This saves time and prevents overfitting, improving the final model performance.
+
+6. What does the Dropout layer do? Why did you set 0.5?
+Answer:
+Dropout randomly "drops" 50% of neurons during each training step.
+This forces the model to not rely too much on specific neurons and makes it more robust, preventing overfitting.
+
+7. Why did you choose 128x128 as the image size?
+Answer:
+128x128 is a good balance between capturing enough details from the image and keeping computation fast.
+Larger images like 224x224 would require more memory and time to train.
+
+8. How did you preprocess your test data?
+Answer:
+Each test image was loaded, resized to 128x128, converted to an array, and normalized by dividing by 255, exactly like training data, to maintain consistency.
+
+9. What does softmax activation do in the output layer?
+Answer:
+Softmax converts raw model outputs into probabilities for each class,
+and ensures that all probabilities sum up to 1, so we can easily pick the most probable class as prediction.

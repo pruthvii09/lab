@@ -1,0 +1,274 @@
+import pandas as pd
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+# -----------------------------------------------------------
+# Step 1: Load the dataset from a CSV file
+# -----------------------------------------------------------
+# We are using a housing dataset where each row represents features of a house
+# and the target variable 'MEDV' represents the median value of the house.
+df = pd.read_csv('HousingData.csv')
+
+# -----------------------------------------------------------
+# Step 2: Separate features and target variable
+# -----------------------------------------------------------
+# 'X' contains all the input features by dropping 'MEDV' column.
+# 'y' contains the target output, which is the house price.
+X = df.drop('MEDV', axis=1)
+y = df['MEDV']
+
+# -----------------------------------------------------------
+# Step 3: Split the dataset into training and testing sets
+# -----------------------------------------------------------
+# 80% of data is used for training, 20% for testing the model's performance.
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# -----------------------------------------------------------
+# Step 4: Feature Scaling
+# -----------------------------------------------------------
+# We apply StandardScaler to normalize the feature values so that
+# they have mean=0 and standard deviation=1. This helps the neural
+# network to converge faster and perform better.
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# -----------------------------------------------------------
+# Step 5: Build a Neural Network Model
+# -----------------------------------------------------------
+# The model is a Sequential model with two hidden layers each having 64 neurons.
+# 'relu' activation function is used to introduce non-linearity.
+# The output layer has 1 neuron since this is a regression task.
+model = models.Sequential([
+    layers.Dense(64, activation='relu', input_shape=(X_train.shape[1],)),
+    layers.Dense(64, activation='relu'),
+    layers.Dense(1)
+])
+
+# -----------------------------------------------------------
+# Step 6: Compile the model
+# -----------------------------------------------------------
+# 'adam' optimizer is used for efficient training.
+# 'mse' (Mean Squared Error) is used as loss function because this is a regression task.
+# We also monitor 'mae' (Mean Absolute Error) as a metric.
+model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+# -----------------------------------------------------------
+# Step 7: Train the model
+# -----------------------------------------------------------
+# The model is trained silently for 100 epochs with a batch size of 16.
+model.fit(X_train, y_train, epochs=100, batch_size=16, verbose=0)
+
+# -----------------------------------------------------------
+# Step 8: Evaluate model performance
+# -----------------------------------------------------------
+# We calculate the final Mean Absolute Error on the test set to understand
+# how far off our predictions are on average.
+loss, mae = model.evaluate(X_test, y_test, verbose=0)
+print(f"Test MAE: {mae:.2f}")
+
+# -----------------------------------------------------------
+# Step 9: Display model architecture
+# -----------------------------------------------------------
+# Shows a summary of the model with details like layer types and number of parameters.
+model.summary()
+
+# -----------------------------------------------------------
+# Step 10: Make Predictions
+# -----------------------------------------------------------
+# We predict the house prices on the test dataset and flatten the predictions
+# for easier handling.
+y_pred = model.predict(X_test).flatten()
+
+# -----------------------------------------------------------
+# Step 11: Compare a few actual vs predicted values
+# -----------------------------------------------------------
+# A quick DataFrame to visually see the model's performance on some test samples.
+comparison_df = pd.DataFrame({'Actual': y_test.values[:10], 'Predicted': y_pred[:10]})
+print(comparison_df)
+
+# -----------------------------------------------------------
+# Step 12: Calculate R-squared score (Coefficient of Determination)
+# -----------------------------------------------------------
+# R² tells how much of the variation in house prices is explained by the model.
+from sklearn.metrics import r2_score
+print("R² Score:", r2_score(y_test, y_pred))
+
+# (Repeated evaluation and prediction, could be cleaned but kept as per your original code)
+oss, mae = model.evaluate(X_test, y_test, verbose=0)
+print(f"Test MAE: {mae:.2f}")
+
+y_pred = model.predict(X_test).flatten()
+print("R² Score:", r2_score(y_test, y_pred))
+
+# -----------------------------------------------------------
+# Step 13: Retrain the Model with Validation Data
+# -----------------------------------------------------------
+# Here the model is retrained for 150 epochs including validation data.
+# Validation loss is monitored to check for overfitting.
+history = model.fit(X_train, y_train, epochs=150, batch_size=16, validation_data=(X_test, y_test), verbose=1)
+
+# -----------------------------------------------------------
+# Step 14: Plot Training and Validation Loss over Epochs
+# -----------------------------------------------------------
+# We plot the loss curve to visually inspect how well the model is learning over time.
+import matplotlib.pyplot as plt
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Val Loss')
+plt.xlabel('Epoch')
+plt.ylabel('MSE Loss')
+plt.title('Loss Over Epochs')
+plt.legend()
+plt.show()
+
+# -----------------------------------------------------------
+# Step 15: Calculate Mean Squared Error
+# -----------------------------------------------------------
+# MSE measures the average squared difference between actual and predicted prices.
+from sklearn.metrics import mean_squared_error
+mse = mean_squared_error(y_test, y_pred)
+print(f'Mean Squared Error (MSE): {mse}')
+
+# -----------------------------------------------------------
+# Step 16: Take User Input and Make a New Prediction
+# -----------------------------------------------------------
+# This section allows user to enter values for each feature manually,
+# and the model predicts the price for the entered values.
+print("\nEnter the following details to predict house price:")
+
+input_data = []
+for column in X.columns:
+    value = float(input(f"{column}: "))
+    input_data.append(value)
+
+# Preprocess the user's input using the previously fitted scaler
+input_data = scaler.transform([input_data])
+
+# Predict the price based on user input
+predicted_price = model.predict(input_data).flatten()[0]
+print(f"\nPredicted House Price (in $1000s): {predicted_price:.2f}")
+
+# -----------------------------------------------------------
+# Step 17: Line Plot for Actual vs Predicted Prices
+# -----------------------------------------------------------
+# Here, we plot actual vs predicted values to visually check
+# if predictions are following the true trend.
+import matplotlib.pyplot as plt
+
+# Sorting the test data and predictions for better plotting alignment
+y_test_sorted = y_test.sort_index()
+y_pred_sorted = pd.Series(y_pred, index=y_test.index).sort_index()
+
+# Create a Line plot
+plt.figure(figsize=(10,6))
+plt.plot(y_test_sorted.values, label='Actual Prices', color='blue')
+plt.plot(y_pred_sorted.values, label='Predicted Prices', color='orange')
+plt.xlabel('Sample Index')
+plt.ylabel('House Price (in $1000s)')
+plt.title('Actual vs Predicted House Prices')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+1. What is the purpose of StandardScaler in this project?
+✅ Answer:
+StandardScaler is used to normalize the feature values so that they have a mean of 0 and a standard deviation of 1.
+It helps the neural network train faster and avoid bias toward features with larger numerical ranges.
+
+2. Why do we use 'relu' activation in hidden layers?
+✅ Answer:
+'ReLU' (Rectified Linear Unit) activation introduces non-linearity into the model, allowing it to learn complex patterns.
+It also helps avoid vanishing gradient problems compared to traditional activations like sigmoid.
+
+3. Why is 'mse' (Mean Squared Error) used as the loss function?
+✅ Answer:
+Since this is a regression problem (predicting continuous house prices), 'mse' is the most common loss function.
+It measures the average squared difference between actual and predicted values, penalizing large errors more.
+
+4. What does R² Score represent in this model?
+✅ Answer:
+R² (coefficient of determination) represents how well the independent variables explain the variability of the target variable.
+An R² value closer to 1 means the model is predicting very accurately.
+
+5. Why do we need both MAE and MSE? Aren't they similar?
+✅ Answer:
+
+MAE (Mean Absolute Error) gives the average size of the errors without considering their direction.
+
+MSE (Mean Squared Error) penalizes larger errors more because of squaring. Having both gives a more complete idea of model performance.
+
+6. Why are we using a Sequential model here?
+✅ Answer:
+Sequential models are used when each layer has exactly one input tensor and one output tensor.
+Since this problem follows a straightforward flow (input → hidden layers → output), Sequential is the easiest and cleanest option.
+
+7. What is the use of early visualization (plotting loss curves)?
+✅ Answer:
+Plotting training and validation loss over epochs helps detect overfitting or underfitting.
+
+If validation loss starts increasing while training loss keeps decreasing, it indicates overfitting.
+
+8. Why is there a manual user input section in the code?
+✅ Answer:
+The user input section allows real-time prediction for any new house whose feature values are known.
+It shows the practical usability of the model beyond just static test data.
+
+9. What optimizer are we using and why?
+✅ Answer:
+We are using the Adam optimizer because it combines the benefits of both AdaGrad and RMSProp.
+It adjusts the learning rate during training, making it efficient for large datasets and noisy gradients.
+
+10. What does 'batch_size' mean? Why 16?
+✅ Answer:
+Batch size defines how many samples are processed before the model’s internal parameters are updated.
+A batch size of 16 is a good balance between memory usage and model convergence speed.
+
+

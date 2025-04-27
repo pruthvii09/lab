@@ -1,138 +1,162 @@
-#include <iostream>   // For standard input/output operations (cin, cout)
-#include <vector>     // For using dynamic array (vector) to store adjacency list
-#include <queue>      // For implementing Breadth-First Search (BFS) traversal
-#include <stack>      // For implementing Depth-First Search (DFS) traversal
-#include <omp.h>      // For enabling parallel programming using OpenMP
+// Including necessary standard libraries
+#include <iostream>     // For standard input and output operations like cout, cin
+#include <vector>       // For using the vector container to represent adjacency lists
+#include <queue>        // For using the queue container needed for BFS (Breadth-First Search)
+#include <omp.h>        // For using OpenMP to enable parallel programming
+#include <chrono>       // For measuring time durations of sequential and parallel BFS executions
 
-using namespace std;
+using namespace std;     // To avoid writing 'std::' again and again
+using namespace chrono;  // To directly use 'high_resolution_clock', 'microseconds', etc.
 
-// Graph class representing an undirected graph using an adjacency list
+// ---------------------------------------------------------------------------------
+// Defining the Graph class, which represents a graph structure using adjacency lists.
+// An adjacency list is a compact way to represent a graph where each node stores a list of its neighbors.
+// ---------------------------------------------------------------------------------
 class Graph {
-private:
-    int numVertices;                     // Total number of vertices in the graph
-    vector<vector<int>> adj;              // Adjacency list to store neighbors of each vertex
+    int V;                      // Number of vertices (nodes) in the graph
+    vector<vector<int>> adj;     // 'adj' is a vector of vectors, representing the adjacency list
 
 public:
-    // Constructor: initializes the graph with a given number of vertices
-    Graph(int vertices) : numVertices(vertices), adj(vertices) {}
-
-    // Function to add an undirected edge between two vertices
-    void addEdge(int src, int dest) {
-        adj[src].push_back(dest);       // Add destination vertex to source vertex's list
-        adj[dest].push_back(src);       // Add source vertex to destination vertex's list (undirected edge)
-    }
-
-    // Function to display the adjacency list of the graph
-    void viewGraph() {
-        cout << "Graph:\n";
-        for (int i = 0; i < numVertices; i++) {
-            cout << "Vertex " << i << " -> ";
-            for (int neighbor : adj[i]) {
-                cout << neighbor << " "; // Display all neighbors of vertex 'i'
-            }
-            cout << endl;
-        }
-    }
-
-    // Function to perform Breadth-First Search (BFS) traversal starting from a given vertex
-    void bfs(int startVertex) {
-        vector<bool> visited(numVertices, false); // Boolean array to keep track of visited vertices
-        queue<int> q;                             // Queue to implement BFS (FIFO structure)
-
-        visited[startVertex] = true;              // Mark the starting vertex as visited
-        q.push(startVertex);                      // Enqueue the starting vertex
-
-        cout << "Breadth First Search (BFS): ";
-
-        // Continue until the queue becomes empty
-        while (!q.empty()) {
-            int currentVertex = q.front();        // Access the front element of the queue
-            q.pop();                              // Dequeue the front element
-            cout << currentVertex << " ";         // Output the current visited vertex
-
-            // Traverse all adjacent vertices (neighbors) of the current vertex
-            // ⚠️ WARNING: Parallelizing here is not thread-safe because queue and visited are shared among threads
-            #pragma omp parallel for
-            for (int i = 0; i < adj[currentVertex].size(); i++) {
-                int neighbor = adj[currentVertex][i]; // Get the i-th neighbor
-                if (!visited[neighbor]) {             // If neighbor is not visited yet
-                    visited[neighbor] = true;         // Mark neighbor as visited
-                    q.push(neighbor);                 // Enqueue the neighbor (⚠️ Not thread-safe operation)
-                }
-            }
-        }
-
-        cout << endl; // End of BFS traversal
-    }
-
-    // Function to perform Depth-First Search (DFS) traversal starting from a given vertex
-    void dfs(int startVertex) {
-        vector<bool> visited(numVertices, false); // Boolean array to keep track of visited vertices
-        stack<int> s;                             // Stack to implement DFS (LIFO structure)
-
-        visited[startVertex] = true;              // Mark the starting vertex as visited
-        s.push(startVertex);                      // Push the starting vertex onto the stack
-
-        cout << "Depth First Search (DFS): ";
-
-        // Continue until the stack becomes empty
-        while (!s.empty()) {
-            int currentVertex = s.top();           // Access the top element of the stack
-            s.pop();                               // Remove the top element
-            cout << currentVertex << " ";          // Output the current visited vertex
-
-            // Traverse all adjacent vertices (neighbors) of the current vertex
-            // ⚠️ WARNING: Parallelizing here is not thread-safe because stack and visited are shared among threads
-            #pragma omp parallel for
-            for (int i = 0; i < adj[currentVertex].size(); i++) {
-                int neighbor = adj[currentVertex][i]; // Get the i-th neighbor
-                if (!visited[neighbor]) {             // If neighbor is not visited yet
-                    visited[neighbor] = true;         // Mark neighbor as visited
-                    s.push(neighbor);                 // Push the neighbor onto the stack (⚠️ Not thread-safe operation)
-                }
-            }
-        }
-
-        cout << endl; // End of DFS traversal
-    }
+    Graph(int V);                // Constructor to initialize the graph with V vertices
+    void addEdge(int v, int w);   // Function to add an edge between two vertices
+    void sequentialBFS(int start); // Function to perform Breadth-First Search sequentially
+    void parallelBFS(int start);   // Function to perform Breadth-First Search in parallel using OpenMP
 };
 
-// Main function: Driver code to test the Graph class functionalities
+// ---------------------------------------------------------------------------------
+// Constructor implementation: Initializes a graph with V vertices
+// ---------------------------------------------------------------------------------
+Graph::Graph(int V) {
+    this->V = V;          // Assign the passed number of vertices to the class member variable
+    adj.resize(V);        // Resize the adjacency list to have V empty lists, one for each vertex
+}
+
+// ---------------------------------------------------------------------------------
+// Function to add an undirected edge between vertex 'v' and vertex 'w'
+// This means both 'v' is connected to 'w' and 'w' is connected to 'v'.
+// ---------------------------------------------------------------------------------
+void Graph::addEdge(int v, int w) {
+    adj[v].push_back(w);  // Add w to v’s list of adjacent vertices
+    adj[w].push_back(v);  // Also add v to w’s list because the graph is undirected
+}
+
+// ---------------------------------------------------------------------------------
+// Function to perform Sequential (normal) BFS Traversal starting from a given vertex
+// BFS (Breadth-First Search) explores all nodes at the present depth before moving deeper.
+// ---------------------------------------------------------------------------------
+void Graph::sequentialBFS(int start) {
+    vector<bool> visited(V, false);  // Create a visited array to track which vertices have been visited
+    queue<int> q;                    // Queue to maintain the order of traversal
+
+    visited[start] = true;  // Mark the starting node as visited
+    q.push(start);          // Push the starting node into the queue to begin BFS
+
+    cout << "Sequential BFS: ";
+
+    // Standard BFS loop: runs until all reachable nodes are visited
+    while (!q.empty()) {
+        int u = q.front();  // Get the front element of the queue (current node)
+        q.pop();            // Remove the element from the queue
+        cout << u << " ";   // Output the current node
+
+        // Traverse all adjacent vertices of u
+        for (auto v : adj[u]) {
+            if (!visited[v]) {       // If the adjacent vertex v is not visited
+                visited[v] = true;    // Mark v as visited
+                q.push(v);            // Add v to the queue for future exploration
+            }
+        }
+    }
+    cout << endl; // Move to the next line after completing traversal
+}
+
+// ---------------------------------------------------------------------------------
+// Function to perform Parallel BFS Traversal starting from a given vertex
+// Here, we introduce parallelism to speed up visiting multiple neighbors simultaneously using OpenMP.
+// ---------------------------------------------------------------------------------
+void Graph::parallelBFS(int start) {
+    vector<bool> visited(V, false);  // Visited array to track already visited vertices
+    queue<int> q;                    // Queue to maintain the traversal order
+
+    visited[start] = true;  // Mark the starting vertex as visited
+    q.push(start);          // Start BFS by pushing the start node
+
+    cout << "Parallel BFS: ";
+
+    // Run the BFS until there are no nodes left in the queue
+    while (!q.empty()) {
+        int qSize = q.size();          // Get the number of elements currently in the queue (nodes at current BFS level)
+        vector<int> currentLevel;      // Temporary array to store all nodes of the current level
+
+        // First step: Pull all elements of the current level from the queue
+        for (int i = 0; i < qSize; i++) {
+            int u = q.front();         // Get the node
+            q.pop();                   // Remove it from the queue
+            cout << u << " ";           // Print the node
+            currentLevel.push_back(u); // Store it for parallel processing
+        }
+
+        // Second step: Now process all neighbors of nodes at the current level in parallel
+        #pragma omp parallel for
+        for (int i = 0; i < currentLevel.size(); i++) {
+            int u = currentLevel[i];  // Get node from current level
+            for (auto v : adj[u]) {   // Traverse all adjacent vertices
+                #pragma omp critical  // Ensure only one thread updates shared resources at a time
+                {
+                    if (!visited[v]) {  // If the vertex hasn't been visited yet
+                        visited[v] = true;  // Mark as visited
+                        q.push(v);          // Add it to the queue for next level exploration
+                    }
+                }
+            }
+        }
+    }
+    cout << endl; // After BFS traversal, move to next line
+}
+
+// ---------------------------------------------------------------------------------
+// Main function: Entry point of the program
+// Handles user input, graph creation, and execution of both sequential and parallel BFS.
+// Also measures and prints the execution time of both methods.
+// ---------------------------------------------------------------------------------
 int main() {
-    int numVertices;
-    cout << "Enter the number of vertices in the graph: ";
-    cin >> numVertices; // Read the number of vertices from user
+    int V, E;  // Variables to hold number of vertices and edges
 
-    // Create a Graph object with the specified number of vertices
-    Graph graph(numVertices);
+    cout << "Enter number of vertices and edges: ";
+    cin >> V >> E;  // Taking user input for number of vertices and edges
 
-    int numEdges;
-    cout << "Enter the number of edges in the graph: ";
-    cin >> numEdges; // Read the number of edges from user
+    Graph g(V); // Create a graph object with V vertices
 
-    // Input the edges from user
-    cout << "Enter the edges (source destination):\n";
-    for (int i = 0; i < numEdges; i++) {
-        int src, dest;
-        cin >> src >> dest; // Read each pair of source and destination vertices
-        graph.addEdge(src, dest); // Add the edge to the graph
+    cout << "Enter edges (u v):" << endl;
+    for (int i = 0; i < E; i++) {
+        int u, v;
+        cin >> u >> v;     // Read two vertices representing an undirected edge
+        g.addEdge(u, v);   // Add the edge to the graph
     }
 
-    // Display the adjacency list representation of the graph
-    graph.viewGraph();
+    int start;   // Starting vertex for BFS
+    cout << "Enter starting vertex: ";
+    cin >> start; // Take input for starting vertex
 
-    int startVertex;
-    cout << "Enter the starting vertex for BFS and DFS: ";
-    cin >> startVertex; // Read the starting vertex from user
+    // ---------------------- Sequential BFS Execution ----------------------
 
-    // Perform BFS traversal starting from the given vertex
-    graph.bfs(startVertex);
+    auto start_seq = high_resolution_clock::now();  // Record start time before calling sequential BFS
+    g.sequentialBFS(start);                          // Perform sequential BFS traversal
+    auto end_seq = high_resolution_clock::now();     // Record end time after sequential BFS
+    auto duration_seq = duration_cast<microseconds>(end_seq - start_seq); // Calculate execution time
+    cout << "Sequential BFS Time: " << duration_seq.count() << " microseconds" << endl;
 
-    // Perform DFS traversal starting from the given vertex
-    graph.dfs(startVertex);
+    // ---------------------- Parallel BFS Execution ----------------------
 
-    return 0; // Indicate successful program termination
+    auto start_par = high_resolution_clock::now();  // Record start time before calling parallel BFS
+    g.parallelBFS(start);                           // Perform parallel BFS traversal
+    auto end_par = high_resolution_clock::now();    // Record end time after parallel BFS
+    auto duration_par = duration_cast<microseconds>(end_par - start_par); // Calculate execution time
+    cout << "Parallel BFS Time: " << duration_par.count() << " microseconds" << endl;
+
+    return 0; // Return 0 indicating successful program termination
 }
+
 
 
 
@@ -198,6 +222,18 @@ To correctly parallelize, I would need to use thread-safe queues and stacks, or 
 9. What happens if we don’t mark a vertex as visited immediately?
 Answer:
 If we delay marking a vertex as visited, it might get added multiple times to the queue or stack, leading to infinite loops or wrong traversals.
+
+Time Complexity:
+
+O(V + E) for graph construction (addEdge calls),
+
+O(V + E) for viewGraph,
+
+O(V + E) for BFS,
+
+O(V + E) for DFS.
+
+So, total time = O(V + E).
 
 
 

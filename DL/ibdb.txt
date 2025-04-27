@@ -1,0 +1,225 @@
+# Importing all required libraries for our Sentiment Analysis Project
+
+import pandas as pd  # For data handling and loading CSV files
+import tensorflow as tf  # To build and train the neural network
+from tensorflow.keras import layers, models  # To define different layers and the overall model
+from sklearn.model_selection import train_test_split  # To split dataset into training and testing sets
+from sklearn.preprocessing import LabelEncoder  # To convert string labels to numerical format
+from tensorflow.keras.preprocessing.text import Tokenizer  # To convert text into sequences of integers
+from tensorflow.keras.preprocessing.sequence import pad_sequences  # To pad or truncate text sequences to a fixed length
+import matplotlib.pyplot as plt  # For plotting the training and validation performance graphs
+
+# Step 1: Load the IMDB Movie Reviews Dataset
+# This dataset contains two columns: 'review' (text) and 'sentiment' (label)
+df = pd.read_csv('IMDB Dataset.csv')
+
+# Step 2: Encode the Sentiment Labels
+# Converting textual labels ('positive' and 'negative') into numeric labels (1 for positive, 0 for negative)
+label_encoder = LabelEncoder()
+df['sentiment'] = label_encoder.fit_transform(df['sentiment'])
+
+# Step 3: Prepare Inputs (X) and Outputs (y)
+# X contains the review texts, y contains the corresponding sentiment labels
+X = df['review'].values
+y = df['sentiment'].values
+
+# Step 4: Tokenization - Converting Text to Sequences
+# Define the size of the vocabulary and the maximum allowed length for each review
+vocab_size = 10000  # Only consider the top 10,000 most frequent words
+max_length = 200  # Only allow up to 200 words per review
+
+# Initialize the Tokenizer with specified vocabulary size and out-of-vocabulary token
+tokenizer = Tokenizer(num_words=vocab_size, oov_token="<OOV>")
+tokenizer.fit_on_texts(X)  # Fit the tokenizer on the entire review dataset
+
+# Convert the text reviews into integer sequences
+X_sequences = tokenizer.texts_to_sequences(X)
+
+# Pad the sequences to ensure all sequences have the same length
+X_padded = pad_sequences(X_sequences, maxlen=max_length, padding='post', truncating='post')
+
+# Step 5: Splitting the Dataset
+# Split the dataset into training set (80%) and testing set (20%)
+X_train, X_test, y_train, y_test = train_test_split(X_padded, y, test_size=0.2, random_state=42)
+
+# Step 6: Building the Deep Neural Network Model
+# Sequential model means we stack layers one after another
+model = models.Sequential([
+    # First Layer: Embedding layer
+    # It converts each word index into a 64-dimensional dense vector
+    layers.Embedding(input_dim=vocab_size, output_dim=64, input_length=max_length),
+    
+    # Second Layer: Flatten layer
+    # Flattens the 2D embedding output into 1D before passing it to Dense layers
+    layers.Flatten(),
+    
+    # Third Layer: Dense hidden layer with 128 neurons and ReLU activation
+    layers.Dense(128, activation='relu'),
+    
+    # Fourth Layer: Another Dense hidden layer with 64 neurons and ReLU activation
+    layers.Dense(64, activation='relu'),
+    
+    # Output Layer: Single neuron with Sigmoid activation
+    # It outputs a probability between 0 and 1 (for binary classification)
+    layers.Dense(1, activation='sigmoid')
+])
+
+# Step 7: Compiling the Model
+# Specify the optimizer (Adam), loss function (Binary Crossentropy), and evaluation metric (Accuracy)
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+# Step 8: Training the Model
+# Train the model on training data for 10 epochs with a batch size of 32
+# Also validate the performance on testing data after each epoch
+history = model.fit(X_train, y_train, epochs=10, batch_size=32, validation_data=(X_test, y_test))
+
+# Step 9: Evaluating the Model
+# Calculate the final loss and accuracy on the unseen test dataset
+loss, accuracy = model.evaluate(X_test, y_test)
+print(f"Test Accuracy: {accuracy*100:.2f}%")
+
+# Step 10: Plotting the Training and Validation Accuracy over Epochs
+# Helps in visualizing if the model is overfitting or underfitting
+plt.plot(history.history['accuracy'], label='Train Accuracy')  # Training accuracy line
+plt.plot(history.history['val_accuracy'], label='Val Accuracy')  # Validation accuracy line
+plt.xlabel('Epoch')  # X-axis label
+plt.ylabel('Accuracy')  # Y-axis label
+plt.title('Accuracy over Epochs')  # Title of the plot
+plt.legend()  # Show legend
+plt.show()  # Display the plot
+
+# Step 11: Function to Predict Sentiment for a Custom User Review
+def predict_review(review_text):
+    """
+    This function takes a movie review written by a user,
+    converts it into a sequence and pads it,
+    then uses the trained model to predict if the review is positive or negative.
+    """
+    sequence = tokenizer.texts_to_sequences([review_text])  # Convert input text to sequence
+    padded = pad_sequences(sequence, maxlen=max_length, padding='post', truncating='post')  # Pad the sequence
+    prediction = model.predict(padded)[0][0]  # Get the prediction probability
+    
+    # Based on probability, classify the review
+    sentiment = "Positive" if prediction >= 0.5 else "Negative"
+    print(f"Predicted Sentiment: {sentiment}")
+
+# Step 12: Asking for User Input and Predicting Sentiment
+# This allows the user to type a movie review and get a real-time prediction
+user_review = input("Enter a movie review: ")
+predict_review(user_review)
+
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+# Predict on Test Data
+y_pred = (model.predict(X_test) > 0.5).astype("int32")
+
+# Generate confusion matrix
+cm = confusion_matrix(y_test, y_pred)
+disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+disp.plot()
+plt.title('Confusion Matrix')
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+1. Why do we use Tokenization in this project?
+Answer:
+Tokenization is used to convert text (reviews) into sequences of numbers because machine learning models can't directly understand text.
+Each word is assigned a unique number, making it easier for the model to process the input.
+
+2. Why do we pad sequences? Why padding='post'?
+Answer:
+Reviews have different lengths, but neural networks expect inputs of same size.
+Padding adds zeros to make all sequences the same length.
+We use padding='post' to add zeros after the actual review instead of before, preserving the meaning at the start.
+
+3. Why did you use binary_crossentropy as the loss function?
+Answer:
+Because this is a binary classification problem — predicting whether a review is Positive (1) or Negative (0).
+binary_crossentropy is designed specifically for binary classification tasks.
+
+4. What is the purpose of the Embedding layer?
+Answer:
+The Embedding layer transforms each word index into a dense vector of fixed size (here 64 dimensions).
+It helps the model learn relationships between words better, like which words are similar in meaning.
+
+5. Why do we use 'relu' activation in hidden layers but 'sigmoid' in output?
+Answer:
+
+'relu' is used in hidden layers because it is fast and helps in solving the vanishing gradient problem.
+
+'sigmoid' is used in the final output layer because it squashes output to between 0 and 1, making it easy to interpret as a probability.
+
+6. What is Overfitting? How can we prevent it?
+Answer:
+Overfitting happens when the model learns training data too well, including noise, and performs badly on unseen data.
+We can prevent it by:
+
+Using Early Stopping
+
+Reducing model complexity
+
+Using Dropout layers
+
+Using more training data
+
+7. Why did you choose 10,000 for vocab_size and 200 for max_length?
+Answer:
+
+vocab_size = 10000 keeps only the most frequent 10,000 words, reducing noise and memory usage.
+
+max_length = 200 ensures reviews are not too long or too short; 200 words capture the main meaning without making inputs too heavy for computation.
+
+8. What is the role of Validation Data in model training?
+Answer:
+Validation data is used to check how well the model is generalizing during training.
+It helps detect overfitting — if validation accuracy stops improving but training accuracy increases, it signals overfitting.
+
+9. What is EarlyStopping and why did you use it (if you added it)?
+Answer:
+EarlyStopping monitors a metric like validation loss and stops training automatically when it doesn't improve for a few epochs.
+It prevents overfitting and saves time and computation resources.
+
+10. How is the Confusion Matrix useful?
+Answer:
+The Confusion Matrix shows how many correct and incorrect predictions the model made.
+It gives deeper insight than just accuracy, showing false positives, false negatives, etc.
+
+
